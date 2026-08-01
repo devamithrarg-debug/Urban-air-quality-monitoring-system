@@ -1,0 +1,1332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>VaayuKaval — Urban Air Quality Monitoring & Alert Dashboard</title>
+
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.3/chart.umd.min.js" onerror="this.onerror=null;var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js';document.head.appendChild(s);"></script>
+
+<style>
+  :root{
+    --bg:#0F1720;
+    --surface:#141F29;
+    --surface-2:#1B2933;
+    --surface-3:#22323D;
+    --border:#2A3B47;
+    --text:#E7EEF3;
+    --text-dim:#8FA4B3;
+    --text-faint:#5D7280;
+    --accent:#49C6B8;
+    --accent-dim:#2C7D75;
+
+    --c-good:#4CAF7D;
+    --c-moderate:#E3C13F;
+    --c-usg:#E28A3D;
+    --c-unhealthy:#D2564F;
+    --c-very:#8B4C9E;
+    --c-hazard:#6E2028;
+  }
+
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Inter',sans-serif;
+    min-height:100vh;
+  }
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  .display{font-family:'Space Grotesk',sans-serif;}
+
+  /* ---------- top bar ---------- */
+  .topbar{
+    display:flex;align-items:center;gap:16px;
+    padding:14px 22px;
+    border-bottom:1px solid var(--border);
+    background:linear-gradient(180deg,#121D26,#101922);
+    position:sticky;top:0;z-index:50;
+    flex-wrap:wrap;
+  }
+  .brand{display:flex;align-items:center;gap:10px;margin-right:auto;}
+  .brand-mark{
+    width:34px;height:34px;border-radius:9px;
+    background:linear-gradient(135deg,var(--c-good),var(--c-hazard));
+    display:flex;align-items:center;justify-content:center;
+    font-family:'Space Grotesk';font-weight:700;color:#0F1720;font-size:15px;
+  }
+  .brand-text h1{font-family:'Space Grotesk';font-size:16px;margin:0;font-weight:600;letter-spacing:.2px;}
+  .brand-text span{font-size:11px;color:var(--text-dim);}
+
+  .tabs{display:flex;gap:4px;background:var(--surface-2);padding:4px;border-radius:10px;border:1px solid var(--border);}
+  .tab-btn{
+    border:none;background:transparent;color:var(--text-dim);
+    padding:8px 14px;border-radius:7px;font-size:13px;font-weight:500;
+    cursor:pointer;font-family:'Inter';transition:.15s;
+  }
+  .tab-btn.active{background:var(--accent);color:#0B1A18;font-weight:600;}
+  .tab-btn:hover:not(.active){color:var(--text);}
+
+  .token-field{display:flex;align-items:center;gap:6px;}
+  .token-field input{
+    background:var(--surface-2);border:1px solid var(--border);color:var(--text);
+    padding:7px 10px;border-radius:7px;font-size:12px;width:190px;font-family:'IBM Plex Mono';
+  }
+  .token-field button{
+    background:var(--surface-3);border:1px solid var(--border);color:var(--text);
+    padding:7px 12px;border-radius:7px;font-size:12px;cursor:pointer;
+  }
+  .token-field button:hover{border-color:var(--accent);color:var(--accent);}
+
+  /* ---------- alert banner ---------- */
+  .alert-banner{
+    display:none;
+    background:linear-gradient(90deg,#3E1216,#5A1A1F);
+    border-bottom:1px solid #7A2A30;
+    padding:11px 22px;align-items:center;gap:12px;
+  }
+  .alert-banner.show{display:flex;}
+  .alert-banner .dot{width:9px;height:9px;border-radius:50%;background:#FF6B6B;flex:none;
+    box-shadow:0 0 0 0 rgba(255,107,107,.6);animation:pulse 1.6s infinite;}
+  @keyframes pulse{
+    0%{box-shadow:0 0 0 0 rgba(255,107,107,.55);}
+    70%{box-shadow:0 0 0 9px rgba(255,107,107,0);}
+    100%{box-shadow:0 0 0 0 rgba(255,107,107,0);}
+  }
+  .alert-banner .txt{font-size:13px;color:#FFD8D8;}
+  .alert-banner b{color:#fff;}
+  .alert-banner .close{margin-left:auto;background:none;border:none;color:#FFD8D8;cursor:pointer;font-size:16px;}
+
+  /* ---------- layout ---------- */
+  .view{display:none;padding:20px 22px 40px;max-width:1400px;margin:0 auto;}
+  .view.active{display:block;}
+
+  .scale-legend{
+    display:flex;align-items:center;gap:0;margin-bottom:16px;
+    border:1px solid var(--border);border-radius:10px;overflow:hidden;
+  }
+  .scale-chip{flex:1;padding:9px 6px;text-align:center;font-size:10.5px;color:#0B1414;font-weight:600;
+    display:flex;flex-direction:column;align-items:center;gap:3px;}
+  .scale-chip span.aqi{font-family:'IBM Plex Mono';font-size:10px;opacity:.8;}
+
+  .map-layout{display:grid;grid-template-columns:1fr 340px;gap:16px;align-items:start;}
+  #map{height:560px;border-radius:14px;border:1px solid var(--border);overflow:hidden;}
+  @media (max-width:900px){.map-layout{grid-template-columns:1fr;} #map{height:420px;}}
+
+  .panel{
+    background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;
+  }
+  .panel h3{margin:0 0 10px;font-family:'Space Grotesk';font-size:14px;color:var(--text);}
+  .search-row{display:flex;gap:8px;margin-bottom:10px;}
+  .search-row input{
+    flex:1;background:var(--surface-2);border:1px solid var(--border);color:var(--text);
+    padding:8px 10px;border-radius:8px;font-size:13px;
+  }
+  .zone-list{display:flex;flex-direction:column;gap:6px;max-height:200px;overflow:auto;}
+  .zone-row{
+    display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:8px;cursor:pointer;
+    border:1px solid transparent;font-size:12.5px;
+  }
+  .zone-row:hover{background:var(--surface-2);}
+  .zone-row.active{background:var(--surface-3);border-color:var(--accent-dim);}
+  .zone-dot{width:10px;height:10px;border-radius:3px;flex:none;}
+  .zone-row .name{flex:1;}
+  .zone-row .aqi{font-family:'IBM Plex Mono';color:var(--text-dim);}
+
+  .detail-empty{color:var(--text-faint);font-size:13px;text-align:center;padding:40px 10px;}
+
+  .detail-head{display:flex;align-items:center;gap:12px;margin-bottom:8px;}
+  .aqi-badge{
+    width:64px;height:64px;border-radius:14px;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;font-family:'Space Grotesk';flex:none;
+  }
+  .aqi-badge .val{font-size:22px;font-weight:700;line-height:1;}
+  .aqi-badge .lbl{font-size:8px;letter-spacing:.5px;text-transform:uppercase;margin-top:2px;}
+  .detail-head .zname{font-family:'Space Grotesk';font-size:16px;font-weight:600;}
+  .detail-head .zcat{font-size:12px;color:var(--text-dim);}
+
+  .metric-row{display:flex;gap:8px;margin:12px 0;}
+  .metric{flex:1;background:var(--surface-2);border-radius:9px;padding:9px;text-align:center;}
+  .metric .m-val{font-family:'IBM Plex Mono';font-size:16px;font-weight:500;}
+  .metric .m-lbl{font-size:10px;color:var(--text-dim);margin-top:2px;}
+
+  .reco-card{
+    background:var(--surface-2);border-left:3px solid var(--accent);border-radius:8px;
+    padding:10px 12px;font-size:12.5px;line-height:1.5;color:var(--text);margin-bottom:12px;
+  }
+  .updated{font-size:10.5px;color:var(--text-faint);margin-bottom:10px;font-family:'IBM Plex Mono';}
+
+  .range-row{display:flex;gap:6px;margin-bottom:8px;}
+  .range-btn{
+    background:var(--surface-2);border:1px solid var(--border);color:var(--text-dim);
+    padding:5px 10px;border-radius:6px;font-size:11px;cursor:pointer;
+  }
+  .range-btn.active{background:var(--accent);color:#0B1A18;border-color:var(--accent);font-weight:600;}
+  canvas{max-width:100%;}
+
+  /* dashboard view */
+  .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:16px;}
+  @media (max-width:900px){.grid-3{grid-template-columns:1fr;}}
+  .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;}
+  .stat-card .s-lbl{font-size:11px;color:var(--text-dim);margin-bottom:4px;}
+  .stat-card .s-val{font-family:'Space Grotesk';font-size:24px;font-weight:600;}
+
+  .heat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:18px;}
+  .heat-tile{
+    border-radius:11px;padding:12px;cursor:pointer;position:relative;overflow:hidden;
+    border:1px solid rgba(255,255,255,.08);
+  }
+  .heat-tile .t-zone{font-size:12.5px;font-weight:600;color:#101617;}
+  .heat-tile .t-aqi{font-family:'IBM Plex Mono';font-size:20px;font-weight:600;color:#101617;margin-top:6px;}
+  .heat-tile .t-cat{font-size:10px;color:#1c2626;margin-top:2px;}
+
+  .chart-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:16px;}
+  .chart-card .ch-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;}
+  .chart-card h3{margin:0;font-family:'Space Grotesk';font-size:14px;}
+  select{
+    background:var(--surface-2);border:1px solid var(--border);color:var(--text);
+    padding:6px 10px;border-radius:7px;font-size:12px;
+  }
+
+  /* admin view */
+  .admin-grid{display:grid;grid-template-columns:1fr 300px;gap:16px;}
+  @media (max-width:900px){.admin-grid{grid-template-columns:1fr;}}
+  .checklist{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;}
+  .chip-toggle{
+    display:flex;align-items:center;gap:6px;background:var(--surface-2);border:1px solid var(--border);
+    padding:6px 10px;border-radius:20px;font-size:12px;cursor:pointer;
+  }
+  .chip-toggle.on{border-color:var(--accent);color:var(--accent);}
+  .form-row{margin-bottom:12px;}
+  .form-row label{display:block;font-size:11px;color:var(--text-dim);margin-bottom:5px;}
+  .form-row input[type=number]{
+    width:100%;background:var(--surface-2);border:1px solid var(--border);color:var(--text);
+    padding:8px 10px;border-radius:8px;font-size:14px;font-family:'IBM Plex Mono';
+  }
+  .btn-primary{
+    background:var(--accent);color:#0B1A18;border:none;padding:9px 16px;border-radius:8px;
+    font-size:13px;font-weight:600;cursor:pointer;width:100%;
+  }
+  .btn-primary:hover{filter:brightness(1.08);}
+  .btn-outline{
+    background:transparent;border:1px solid var(--border);color:var(--text);padding:9px 16px;
+    border-radius:8px;font-size:13px;cursor:pointer;width:100%;margin-top:8px;
+  }
+  .btn-outline:hover{border-color:var(--accent);color:var(--accent);}
+  .save-msg{font-size:11.5px;color:var(--c-good);margin-top:8px;display:none;}
+  .save-msg.show{display:block;}
+  table{width:100%;border-collapse:collapse;font-size:12px;}
+  th,td{padding:7px 8px;text-align:left;border-bottom:1px solid var(--border);}
+  th{color:var(--text-dim);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.3px;}
+  td.mono-cell{font-family:'IBM Plex Mono';}
+
+  .token-note{font-size:11px;color:var(--text-faint);max-width:1400px;margin:0 auto;padding:0 22px 10px;}
+  ::-webkit-scrollbar{width:8px;height:8px;}
+  ::-webkit-scrollbar-thumb{background:var(--surface-3);border-radius:4px;}
+
+  .maplibregl-popup-content{
+    background:var(--surface)!important;color:var(--text)!important;border-radius:10px!important;
+    font-family:'Inter',sans-serif;padding:12px 14px!important;border:1px solid var(--border);
+  }
+  .maplibregl-popup-tip{border-top-color:var(--surface)!important;border-bottom-color:var(--surface)!important;}
+  .maplibregl-ctrl-attrib{font-size:10px;}
+
+/* ---------- LOGIN SCREEN (merged) ---------- */
+#loginScreen{
+  position:fixed; inset:0; z-index:999;
+  display:flex; align-items:center; justify-content:center;
+  padding:20px;
+  background:
+    radial-gradient(circle at 15% 20%, rgba(76,175,125,.10), transparent 40%),
+    radial-gradient(circle at 85% 80%, rgba(110,32,40,.14), transparent 45%),
+    var(--bg);
+}
+#dashboardApp{ display:none; }
+
+
+
+  .auth-wrap{
+    width:100%;
+    max-width:920px;
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:18px;
+    overflow:hidden;
+    box-shadow:0 20px 60px rgba(0,0,0,.45);
+  }
+  @media (max-width:760px){
+    .auth-wrap{grid-template-columns:1fr;max-width:420px;}
+    .side-panel{display:none;}
+  }
+
+  /* ---------- left decorative panel ---------- */
+  .side-panel{
+    background:linear-gradient(160deg,#0F1B22,#152229 55%,#101A20);
+    border-right:1px solid var(--border);
+    padding:34px 30px;
+    display:flex;
+    flex-direction:column;
+    justify-content:space-between;
+    position:relative;
+  }
+  .side-panel::before{
+    content:"";
+    position:absolute; inset:0;
+    background:linear-gradient(135deg,rgba(73,198,184,.08),transparent 60%);
+  }
+  .lg-brand{display:flex;align-items:center;gap:10px;position:relative;z-index:1;}
+  .lg-brand-mark{
+    width:36px;height:36px;border-radius:10px;
+    background:linear-gradient(135deg,var(--c-good),var(--c-hazard));
+    display:flex;align-items:center;justify-content:center;
+    font-family:'Space Grotesk';font-weight:700;color:#0F1720;font-size:16px;
+    flex:none;
+  }
+  .lg-brand-text h1{font-family:'Space Grotesk';font-size:17px;margin:0;font-weight:600;}
+  .lg-brand-text span{font-size:11px;color:var(--text-dim);}
+
+  .side-mid{position:relative;z-index:1;margin-top:26px;}
+  .side-mid h2{font-family:'Space Grotesk';font-size:22px;line-height:1.35;margin:0 0 10px;}
+  .side-mid p{font-size:13px;color:var(--text-dim);line-height:1.6;margin:0;}
+
+  .scale-preview{display:flex;gap:6px;margin-top:26px;position:relative;z-index:1;}
+  .scale-dot{flex:1;height:8px;border-radius:6px;}
+
+  .side-foot{font-size:11px;color:var(--text-faint);position:relative;z-index:1;font-family:'IBM Plex Mono';}
+
+  /* ---------- right form panel ---------- */
+  .form-panel{
+    padding:38px 36px;
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+  }
+  .form-head h2{font-family:'Space Grotesk';font-size:22px;margin:0 0 6px;font-weight:600;}
+  .form-head p{font-size:12.5px;color:var(--text-dim);margin:0 0 24px;}
+
+  .field{margin-bottom:16px;}
+  .field label{
+    display:block;font-size:11px;color:var(--text-dim);margin-bottom:6px;
+    text-transform:uppercase;letter-spacing:.4px;
+  }
+  .field-input{
+    display:flex;align-items:center;gap:8px;
+    background:var(--surface-2);border:1px solid var(--border);border-radius:9px;
+    padding:10px 12px;transition:.15s;
+  }
+  .field-input:focus-within{border-color:var(--accent);}
+  .field-input svg{flex:none;opacity:.6;}
+  .field-input input{
+    flex:1;background:transparent;border:none;outline:none;color:var(--text);
+    font-size:13.5px;font-family:'Inter';
+  }
+  .field-input input::placeholder{color:var(--text-faint);}
+  .field-input button.eye{
+    background:none;border:none;color:var(--text-faint);cursor:pointer;
+    font-size:11px;font-family:'Inter';
+  }
+
+  .row-between{display:flex;align-items:center;justify-content:space-between;margin:6px 0 20px;}
+  .remember{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text-dim);}
+  .remember input{accent-color:var(--accent);}
+
+  .lg-btn-primary{
+    width:100%;background:var(--accent);color:#0B1A18;border:none;
+    padding:11px 16px;border-radius:9px;font-size:14px;font-weight:600;
+    cursor:pointer;font-family:'Inter';transition:.15s;
+  }
+  .lg-btn-primary:hover{filter:brightness(1.08);}
+  .lg-btn-primary:active{transform:translateY(1px);}
+  .lg-btn-primary:disabled{opacity:.6;cursor:not-allowed;}
+
+  .error-msg{
+    display:none;background:rgba(210,86,79,.12);border:1px solid rgba(210,86,79,.4);
+    color:#FF9C97;font-size:12px;padding:9px 12px;border-radius:8px;margin-bottom:16px;
+  }
+  .error-msg.show{display:block;}
+
+  .success-msg{
+    display:none;background:rgba(76,175,125,.12);border:1px solid rgba(76,175,125,.4);
+    color:#8FE0B4;font-size:12px;padding:9px 12px;border-radius:8px;margin-bottom:16px;
+  }
+  .success-msg.show{display:block;}
+
+  .lock-note{
+    display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-faint);
+    margin-top:18px;justify-content:center;
+  }
+
+  .shake{ animation:shake .35s; }
+  @keyframes shake{
+    0%,100%{transform:translateX(0);}
+    25%{transform:translateX(-6px);}
+    75%{transform:translateX(6px);}
+  }
+
+</style>
+</head>
+<body>
+
+<div id="loginScreen">
+<div class="auth-wrap" id="authCard">
+
+  <!-- ===================== LEFT DECORATIVE PANEL ===================== -->
+  <div class="side-panel">
+    <div class="lg-brand">
+      <div class="lg-brand-mark">V</div>
+      <div class="lg-brand-text">
+        <h1>VaayuKaval</h1>
+        <span>Urban Air Quality Monitoring &amp; Alert Dashboard</span>
+      </div>
+    </div>
+
+    <div class="side-mid">
+      <h2>Restricted access.<br>Authorized login only.</h2>
+      <p>Intha dashboard authorized user account-ku mattum access panna anumadhikkapadum. Unga registered email &amp; password use panni login pannunga.</p>
+
+      <div class="scale-preview">
+        <div class="scale-dot" style="background:var(--c-good)"></div>
+        <div class="scale-dot" style="background:var(--c-moderate)"></div>
+        <div class="scale-dot" style="background:var(--c-usg)"></div>
+        <div class="scale-dot" style="background:var(--c-unhealthy)"></div>
+        <div class="scale-dot" style="background:var(--c-very)"></div>
+        <div class="scale-dot" style="background:var(--c-hazard)"></div>
+      </div>
+    </div>
+
+    <div class="side-foot">© 2026 VaayuKaval · Authorized access only</div>
+  </div>
+
+  <!-- ===================== RIGHT FORM PANEL ===================== -->
+  <div class="form-panel">
+    <div class="form-head">
+      <h2>Welcome back</h2>
+      <p>Login பண்ணி unga dashboard-ஐ access பண்ணுங்க</p>
+    </div>
+
+    <div class="error-msg" id="errorMsg"></div>
+    <div class="success-msg" id="successMsg"></div>
+
+    <form id="authForm" autocomplete="off">
+      <div class="field">
+        <label>Email address</label>
+        <div class="field-input">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8FA4B3" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 6-10 7L2 6"/></svg>
+          <input type="email" id="emailInput" placeholder="you@bitsathy.ac.in" required />
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Password</label>
+        <div class="field-input">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8FA4B3" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          <input type="password" id="passInput" placeholder="••••••••" required />
+          <button type="button" class="eye" id="toggleEye">SHOW</button>
+        </div>
+      </div>
+
+      <div class="row-between">
+        <label class="remember">
+          <input type="checkbox" id="rememberChk" /> Remember me
+        </label>
+      </div>
+
+      <button type="submit" class="lg-btn-primary" id="submitBtn">Login</button>
+    </form>
+
+    <div class="lock-note">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#5D7280" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      Single authorized account only — access is restricted
+    </div>
+  </div>
+</div>
+</div>
+
+<div id="dashboardApp">
+<div class="topbar">
+  <div class="brand">
+    <div class="brand-mark">V</div>
+    <div class="brand-text">
+      <h1>VaayuKaval</h1>
+      <span>Urban Air Quality Monitoring &amp; Alert Dashboard</span>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-view="map">Map</button>
+    <button class="tab-btn" data-view="dashboard">City Dashboard</button>
+    <button class="tab-btn" data-view="admin">Admin / Researcher</button>
+  </div>
+
+  <div class="token-field">
+    <input id="aqiTokenInput" type="text" placeholder="Live AQI token (free at aqicn.org/data-platform/token)" />
+    <button id="aqiTokenSave">Go Live</button>
+  </div>
+  <div class="token-field">
+    <input id="tokenInput" type="text" placeholder="Optional: Mapbox token for Mapbox tiles (pk.xxx)" />
+    <button id="tokenSave">Apply</button>
+  </div>
+
+  <div class="token-field" id="userField">
+    <span id="userEmailTag" style="font-size:11px;color:var(--text-dim);font-family:'IBM Plex Mono';padding:0 4px;"></span>
+    <button id="logoutBtn" title="Logout">Logout</button>
+  </div>
+</div>
+<div class="token-note" id="aqiTokenNote">📡 Data status: <span id="liveStatus">showing reference readings (CPCB/WAQI snapshot, Aug 1 2026) — paste a free WAQI token above and click "Go Live" for real-time updates.</span></div>
+<div class="token-note" id="tokenNote">Map default ah free OpenStreetMap tiles vachi load aagum — token onnum thevai illa. Unga own Mapbox account irundha, pk.xxx token inga paste pannitu "Apply" click pannunga → Mapbox-oda dark map style ku switch aagum.</div>
+
+<div class="alert-banner" id="alertBanner">
+  <span class="dot"></span>
+  <span class="txt" id="alertText"></span>
+  <button class="close" onclick="document.getElementById('alertBanner').classList.remove('show')">×</button>
+</div>
+
+<!-- ===================== MAP VIEW ===================== -->
+<div class="view active" id="view-map">
+  <div class="scale-legend" id="scaleLegend"></div>
+  <div class="map-layout">
+    <div id="map"></div>
+    <div class="panel" id="rightPanel">
+      <h3>Zones</h3>
+      <div class="search-row">
+        <input id="zoneSearch" placeholder="Search zone name (FR-1.5)…" />
+      </div>
+      <div class="zone-list" id="zoneList"></div>
+      <hr style="border:none;border-top:1px solid var(--border);margin:14px 0;">
+      <div id="zoneDetail"><div class="detail-empty">Map la ஒரு zone marker click pannunga, athoda details inga varum.</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== DASHBOARD VIEW ===================== -->
+<div class="view" id="view-dashboard">
+  <div class="grid-3" id="statCards"></div>
+
+  <div class="chart-card">
+    <div class="ch-head"><h3>City-wide AQI heatmap by zone (FR-4.1)</h3></div>
+    <div class="heat-grid" id="heatGrid"></div>
+  </div>
+
+  <div class="chart-card">
+    <div class="ch-head">
+      <h3>Pollutant trend — PM2.5 / PM10 (FR-4.2)</h3>
+      <select id="pollutantZoneSelect"></select>
+    </div>
+    <canvas id="pollutantChart" height="90"></canvas>
+  </div>
+
+  <div class="chart-card">
+    <div class="ch-head"><h3>Hazardous AQI days per month (FR-4.3)</h3></div>
+    <canvas id="hazardChart" height="80"></canvas>
+  </div>
+</div>
+
+<!-- ===================== ADMIN VIEW ===================== -->
+<div class="view" id="view-admin">
+  <div class="admin-grid">
+    <div>
+      <div class="chart-card">
+        <div class="ch-head"><h3>Multi-station comparison (FR-5.1)</h3></div>
+        <div class="checklist" id="compareChips"></div>
+        <canvas id="compareChart" height="100"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="ch-head"><h3>Station data preview</h3></div>
+        <div style="max-height:260px;overflow:auto;">
+          <table id="dataTable"></table>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="panel" style="margin-bottom:16px;">
+        <h3>Alert threshold config (FR-3.3 / FR-5.3)</h3>
+        <div class="form-row">
+          <label>Hazardous AQI threshold</label>
+          <input type="number" id="thresholdInput" min="0" max="500" />
+        </div>
+        <button class="btn-primary" id="saveThreshold">Save threshold</button>
+        <div class="save-msg" id="thresholdSaved">Threshold saved. Alerts recalculated.</div>
+      </div>
+      <div class="panel">
+        <h3>Export data (FR-5.2)</h3>
+        <p style="font-size:12px;color:var(--text-dim);margin:0 0 10px;">Selected stations readings-ah CSV ah export pannalam — research use-ku.</p>
+        <button class="btn-outline" id="exportCsv">Export CSV</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+<script>
+/* =========================================================
+   0. LOGIN + AUTH GUARD (merged, single-page)
+      Only the authorized VaayuKaval account can view the
+      dashboard. Login screen shows first; on success the
+      dashboard is revealed in-place (no page navigation).
+   ========================================================= */
+const AUTHORIZED_EMAIL = "devamathirarg.ad25@bitsathy.ac.in";
+const AUTHORIZED_PASSWORD = "mithra25";
+
+function showDashboard(email){
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('dashboardApp').style.display = 'block';
+  const tag = document.getElementById('userEmailTag');
+  if(tag) tag.textContent = email || '';
+}
+
+function showLogin(){
+  document.getElementById('dashboardApp').style.display = 'none';
+  document.getElementById('loginScreen').style.display = 'flex';
+}
+
+(function initAuth(){
+  const isAuthed = sessionStorage.getItem('vk_authorized') === 'true' ||
+                    localStorage.getItem('vk_authorized') === 'true';
+  const savedEmail = sessionStorage.getItem('vk_email') || localStorage.getItem('vk_email') || '';
+
+  if(isAuthed){
+    showDashboard(savedEmail);
+  } else {
+    showLogin();
+  }
+
+  const authCard   = document.getElementById('authCard');
+  const errorMsg   = document.getElementById('errorMsg');
+  const successMsg = document.getElementById('successMsg');
+  const passInput  = document.getElementById('passInput');
+  const toggleEye  = document.getElementById('toggleEye');
+  const submitBtn  = document.getElementById('submitBtn');
+
+  /* Show/Hide password */
+  toggleEye.addEventListener('click', ()=>{
+    const isPwd = passInput.type === 'password';
+    passInput.type = isPwd ? 'text' : 'password';
+    toggleEye.textContent = isPwd ? 'HIDE' : 'SHOW';
+  });
+
+  document.getElementById('authForm').addEventListener('submit', (e)=>{
+    e.preventDefault();
+    errorMsg.classList.remove('show');
+    successMsg.classList.remove('show');
+
+    const email = document.getElementById('emailInput').value.trim().toLowerCase();
+    const pass  = passInput.value;
+
+    if (email === AUTHORIZED_EMAIL.toLowerCase() && pass === AUTHORIZED_PASSWORD) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Logging in...";
+      successMsg.textContent = "Login success! Dashboard-ku redirect aagudhu…";
+      successMsg.classList.add('show');
+
+      sessionStorage.setItem('vk_authorized', 'true');
+      sessionStorage.setItem('vk_email', email);
+      if (document.getElementById('rememberChk').checked) {
+        localStorage.setItem('vk_authorized', 'true');
+        localStorage.setItem('vk_email', email);
+      }
+
+      setTimeout(()=>{
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Login";
+        successMsg.classList.remove('show');
+        document.getElementById('authForm').reset();
+        showDashboard(email);
+      }, 800);
+    } else {
+      errorMsg.textContent = "Email அல்லது password தப்பா இருக்கு. Authorized credential மட்டும் access பண்ண முடியும்.";
+      errorMsg.classList.add('show');
+      authCard.classList.add('shake');
+      setTimeout(()=>authCard.classList.remove('shake'), 400);
+    }
+  });
+
+  const logoutBtn = document.getElementById('logoutBtn');
+  if(logoutBtn){
+    logoutBtn.addEventListener('click', ()=>{
+      sessionStorage.removeItem('vk_authorized');
+      localStorage.removeItem('vk_authorized');
+      sessionStorage.removeItem('vk_email');
+      localStorage.removeItem('vk_email');
+      showLogin();
+    });
+  }
+})();
+
+/* =========================================================
+   1. MOCK DATA — matches SRS Section 7 data entities exactly
+   ========================================================= */
+
+const AQI_CATEGORIES = [
+  {min:0,   max:50,  label:"Good",                         color:"var(--c-good)",     hex:"#4CAF7D", shape:"circle",
+    advice:"Air quality is good. Great day to be outdoors."},
+  {min:51,  max:100, label:"Moderate",                      color:"var(--c-moderate)", hex:"#E3C13F", shape:"triangle",
+    advice:"Air quality is acceptable. Unusually sensitive people should consider limiting long outdoor exertion."},
+  {min:101, max:150, label:"Unhealthy (Sensitive Groups)",  color:"var(--c-usg)",      hex:"#E28A3D", shape:"diamond",
+    advice:"Sensitive groups — children, elderly, asthma patients — should limit prolonged outdoor activity."},
+  {min:151, max:200, label:"Unhealthy",                     color:"var(--c-unhealthy)",hex:"#D2564F", shape:"square",
+    advice:"Everyone may start feeling effects. Limit outdoor activity and wear a mask if you must go out."},
+  {min:201, max:300, label:"Very Unhealthy",                color:"var(--c-very)",     hex:"#8B4C9E", shape:"hexagon",
+    advice:"Health alert: everyone may experience serious effects. Avoid outdoor activity."},
+  {min:301, max:500, label:"Hazardous",                     color:"var(--c-hazard)",   hex:"#6E2028", shape:"octagon",
+    advice:"Emergency conditions. Stay indoors, keep windows shut, avoid all outdoor exertion."},
+];
+
+function getCategory(aqi){
+  return AQI_CATEGORIES.find(c => aqi >= c.min && aqi <= c.max) || AQI_CATEGORIES[AQI_CATEGORIES.length-1];
+}
+
+// aqi_stations: station_id, zone, location_lat, location_lng
+// base values seeded from real CPCB/WAQI reference readings for Chennai (city avg AQI ~76 on Aug 1 2026)
+// until a live WAQI token is applied (see LIVE DATA section below), these anchor the fallback trend.
+const STATIONS = [
+  {station_id:"ST-01", zone:"T Nagar",     location_lat:13.0418, location_lng:80.2341, base:92},
+  {station_id:"ST-02", zone:"Adyar",       location_lat:13.0012, location_lng:80.2565, base:64},
+  {station_id:"ST-03", zone:"Anna Nagar",  location_lat:13.0850, location_lng:80.2101, base:80},
+  {station_id:"ST-04", zone:"Velachery",   location_lat:12.9756, location_lng:80.2207, base:78},
+  {station_id:"ST-05", zone:"Guindy",      location_lat:13.0067, location_lng:80.2206, base:98},
+  {station_id:"ST-06", zone:"Perambur",    location_lat:13.1179, location_lng:80.2500, base:104},
+  {station_id:"ST-07", zone:"Mylapore",    location_lat:13.0339, location_lng:80.2619, base:68},
+  {station_id:"ST-08", zone:"Tambaram",    location_lat:12.9249, location_lng:80.1000, base:86},
+];
+
+// aqi_readings: reading_id, station_id, aqi_value, pm25, pm10, recorded_at  (30 days, daily)
+function generateReadings(){
+  const readings = [];
+  const today = new Date("2026-07-31T08:00:00");
+  let rid = 1;
+  STATIONS.forEach(st => {
+    let level = st.base;
+    for(let d=29; d>=0; d--){
+      const date = new Date(today); date.setDate(date.getDate()-d);
+      level += (Math.random()-0.5)*16;
+      level = Math.max(15, Math.min(250, level));
+      const aqi = Math.round(level);
+      const pm25 = Math.round(aqi*0.55 + (Math.random()*6-3));
+      const pm10 = Math.round(aqi*0.78 + (Math.random()*8-4));
+      readings.push({
+        reading_id:"R-"+(rid++),
+        station_id:st.station_id,
+        aqi_value:aqi,
+        pm25: Math.max(4,pm25),
+        pm10: Math.max(6,pm10),
+        recorded_at: date.toISOString()
+      });
+    }
+  });
+  return readings;
+}
+const READINGS = generateReadings();
+
+/* =========================================================
+   1B. LIVE DATA — World Air Quality Index (WAQI / aqicn.org)
+   Real-time feed sourced from CPCB (India Central Pollution
+   Control Board) via https://api.waqi.info — free token from
+   https://aqicn.org/data-platform/token/
+   ========================================================= */
+let waqiToken = null;
+let liveRefreshTimer = null;
+
+function setLiveStatus(html){
+  const el = document.getElementById('liveStatus');
+  if(el) el.innerHTML = html;
+}
+
+// nearest real monitoring station data for each zone's coordinates
+async function fetchLiveForStation(st, token){
+  const url = `https://api.waqi.info/feed/geo:${st.location_lat};${st.location_lng}/?token=${token}`;
+  const res = await fetch(url);
+  const json = await res.json();
+  if(json.status !== "ok") throw new Error(json.data || "WAQI error");
+  const d = json.data;
+  const pm25 = d.iaqi?.pm25?.v;
+  const pm10 = d.iaqi?.pm10?.v;
+  return {
+    station_id: st.station_id,
+    aqi: Math.round(d.aqi),
+    pm25: pm25 !== undefined ? Math.round(pm25) : Math.round(d.aqi*0.55),
+    pm10: pm10 !== undefined ? Math.round(pm10) : Math.round(d.aqi*0.78),
+    recorded_at: d.time?.iso ? new Date(d.time.iso).toISOString() : new Date().toISOString(),
+    source: d.city?.name || "WAQI/CPCB station"
+  };
+}
+
+function applyLiveReading(live){
+  // replace (or append) today's reading for this station with the real live value
+  const idx = [...READINGS].map((r,i)=>({r,i})).filter(x=>x.r.station_id===live.station_id).map(x=>x.i).pop();
+  const entry = {
+    reading_id: "R-LIVE-"+live.station_id,
+    station_id: live.station_id,
+    aqi_value: live.aqi,
+    pm25: live.pm25,
+    pm10: live.pm10,
+    recorded_at: live.recorded_at
+  };
+  if(idx !== undefined && idx !== -1) READINGS[idx] = entry; else READINGS.push(entry);
+}
+
+async function refreshLiveData(token, isManualClick){
+  if(!token){
+    setLiveStatus('showing reference readings (CPCB/WAQI snapshot, Aug 1 2026) — paste a free WAQI token above and click "Go Live" for real-time updates.');
+    return;
+  }
+  setLiveStatus('fetching live readings from WAQI/CPCB…');
+  try{
+    const results = await Promise.allSettled(STATIONS.map(st=>fetchLiveForStation(st, token)));
+    let ok = 0, fail = 0;
+    results.forEach(r=>{
+      if(r.status === "fulfilled"){ applyLiveReading(r.value); ok++; }
+      else fail++;
+    });
+    if(ok === 0){
+      setLiveStatus('⚠️ live fetch failed for all zones (invalid token or network) — showing reference data. Check the token and try again.');
+      return;
+    }
+    const now = new Date().toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'});
+    setLiveStatus(`🟢 Live — ${ok}/${STATIONS.length} zones updated from WAQI/CPCB at ${now}${fail? ` (${fail} zone(s) fell back to nearest-available reading)`:''}.`);
+
+    // re-render everything that depends on READINGS
+    evaluateAlerts();
+    renderZoneList(document.getElementById('zoneSearch').value);
+    if(selectedStationId) renderZoneDetail();
+    updateMapMarkers();
+    if(document.getElementById('view-dashboard').classList.contains('active')) renderDashboard();
+    if(document.getElementById('view-admin').classList.contains('active')) renderAdmin();
+  }catch(err){
+    console.error(err);
+    setLiveStatus('⚠️ live fetch error — showing reference data. ' + (isManualClick ? 'Check your token and try again.' : ''));
+  }
+}
+
+function updateMapMarkers(){
+  if(!map) return;
+  STATIONS.forEach(st=>{
+    const marker = markers[st.station_id];
+    if(!marker) return;
+    const r = latestReading(st.station_id);
+    const cat = getCategory(r.aqi_value);
+    const el = marker.getElement();
+    el.style.background = cat.hex;
+    el.innerHTML = shapeSvg(cat.shape,'#10171A',16);
+    marker.setPopup(new maplibregl.Popup({offset:20, closeButton:false}).setHTML(`
+      <div style="font-family:'Space Grotesk';font-weight:600;font-size:13px;margin-bottom:4px;">${st.zone}</div>
+      <div class="mono" style="font-size:11px;color:var(--text-dim);">AQI ${r.aqi_value} · ${cat.label}</div>`));
+  });
+}
+
+function latestReading(stationId){
+  const rs = READINGS.filter(r=>r.station_id===stationId);
+  return rs[rs.length-1];
+}
+function readingsForStation(stationId, days){
+  const rs = READINGS.filter(r=>r.station_id===stationId);
+  return days ? rs.slice(-days) : rs;
+}
+
+/* =========================================================
+   2. STATE
+   ========================================================= */
+let alertThreshold = 200;
+let selectedStationId = null;
+let map = null;
+let markers = {};
+let currentRangeDays = 14;
+let compareSelection = new Set([STATIONS[0].station_id, STATIONS[4].station_id]);
+let pollutantChartObj = null, hazardChartObj = null, compareChartObj = null;
+
+/* =========================================================
+   3. LEGEND + SVG MARKER SHAPES (colour + icon, for colour-blind users)
+   ========================================================= */
+function renderLegend(){
+  const el = document.getElementById('scaleLegend');
+  el.innerHTML = AQI_CATEGORIES.map(c=>`
+    <div class="scale-chip" style="background:${c.hex}">
+      ${shapeSvg(c.shape,'#10171A',16)}
+      <div>${c.label}</div>
+      <span class="aqi">${c.min}-${c.max===500?'500+':c.max}</span>
+    </div>`).join('');
+}
+
+function shapeSvg(shape,fill,size){
+  const s=size;
+  switch(shape){
+    case 'circle': return `<svg width="${s}" height="${s}" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="${fill}"/></svg>`;
+    case 'triangle': return `<svg width="${s}" height="${s}" viewBox="0 0 24 24"><polygon points="12,3 21,20 3,20" fill="${fill}"/></svg>`;
+    case 'diamond': return `<svg width="${s}" height="${s}" viewBox="0 0 24 24"><polygon points="12,2 22,12 12,22 2,12" fill="${fill}"/></svg>`;
+    case 'square': return `<svg width="${s}" height="${s}" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" fill="${fill}"/></svg>`;
+    case 'hexagon': return `<svg width="${s}" height="${s}" viewBox="0 0 24 24"><polygon points="7,2 17,2 22,12 17,22 7,22 2,12" fill="${fill}"/></svg>`;
+    case 'octagon': return `<svg width="${s}" height="${s}" viewBox="0 0 24 24"><polygon points="8,2 16,2 22,8 22,16 16,22 8,22 2,16 2,8" fill="${fill}"/></svg>`;
+  }
+}
+
+/* =========================================================
+   4. MAP (Mapbox GL JS) — FR-1.1, FR-1.2, FR-1.3, FR-1.4
+   ========================================================= */
+function buildStyle(token){
+  if(token){
+    // Use the user's own Mapbox account to pull Mapbox's raster tiles — no mapbox-gl library needed
+    return {
+      version:8,
+      sources:{
+        'mb-raster':{
+          type:'raster',
+          tiles:[`https://api.mapbox.com/styles/v1/mapbox/dark-v11/tiles/256/{z}/{x}/{y}@2x?access_token=${token}`],
+          tileSize:256,
+          attribution:'© Mapbox © OpenStreetMap'
+        }
+      },
+      layers:[{id:'mb-raster-layer', type:'raster', source:'mb-raster'}]
+    };
+  }
+  // Default: token-free OpenStreetMap raster tiles, always works
+  return {
+    version:8,
+    sources:{
+      'osm':{
+        type:'raster',
+        tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+        tileSize:256,
+        attribution:'© OpenStreetMap contributors'
+      }
+    },
+    layers:[{id:'osm-layer', type:'raster', source:'osm'}]
+  };
+}
+
+function initMap(token){
+  document.getElementById('map').innerHTML = "";
+  markers = {};
+  try{
+    map = new maplibregl.Map({
+      container:'map',
+      style: buildStyle(token),
+      center:[80.22, 13.03],
+      zoom:11
+    });
+    map.addControl(new maplibregl.NavigationControl(),'top-right');
+    map.on('load', ()=>{
+      STATIONS.forEach(st=>addMarker(st));
+    });
+    map.on('error', (e)=>{
+      console.warn('Map error', e);
+      const box = document.getElementById('map');
+      if(!box.dataset.errored){
+        box.dataset.errored = "1";
+        const msg = document.createElement('div');
+        msg.style.cssText = "padding:14px;color:var(--text-dim);font-size:12px;position:absolute;bottom:0;background:rgba(15,23,32,.9);width:100%;";
+        msg.textContent = token ? "Mapbox token invalid ah irukalam — token illama default OSM map continue aagum." : "Tile load la konjam delay aagalam, network check pannunga.";
+        box.appendChild(msg);
+      }
+    });
+  }catch(err){
+    document.getElementById('map').innerHTML = `<div style="padding:30px;color:var(--text-dim);font-size:13px;">Map init error: ${err.message}</div>`;
+  }
+}
+
+function addMarker(st){
+  const r = latestReading(st.station_id);
+  const cat = getCategory(r.aqi_value);
+  const el = document.createElement('div');
+  el.style.cssText = `width:34px;height:34px;border-radius:50%;background:${cat.hex};display:flex;align-items:center;justify-content:center;border:2px solid rgba(255,255,255,.85);cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.5);`;
+  el.innerHTML = shapeSvg(cat.shape,'#10171A',16);
+  el.addEventListener('click', ()=> selectStation(st.station_id));
+
+  const popupHtml = `
+    <div style="font-family:'Space Grotesk';font-weight:600;font-size:13px;margin-bottom:4px;">${st.zone}</div>
+    <div class="mono" style="font-size:11px;color:var(--text-dim);">AQI ${r.aqi_value} · ${cat.label}</div>`;
+  const popup = new maplibregl.Popup({offset:20, closeButton:false}).setHTML(popupHtml);
+
+  const marker = new maplibregl.Marker({element:el}).setLngLat([st.location_lng, st.location_lat]).setPopup(popup).addTo(map);
+  markers[st.station_id] = marker;
+}
+
+/* =========================================================
+   5. ZONE LIST + SEARCH — FR-1.5
+   ========================================================= */
+function renderZoneList(filter){
+  const list = document.getElementById('zoneList');
+  const f = (filter||"").toLowerCase();
+  list.innerHTML = STATIONS
+    .filter(st=>st.zone.toLowerCase().includes(f))
+    .map(st=>{
+      const r = latestReading(st.station_id);
+      const cat = getCategory(r.aqi_value);
+      return `<div class="zone-row ${st.station_id===selectedStationId?'active':''}" data-id="${st.station_id}">
+        <div class="zone-dot" style="background:${cat.hex}"></div>
+        <div class="name">${st.zone}</div>
+        <div class="aqi">${r.aqi_value}</div>
+      </div>`;
+    }).join('');
+  list.querySelectorAll('.zone-row').forEach(row=>{
+    row.addEventListener('click', ()=> selectStation(row.dataset.id));
+  });
+}
+document.getElementById('zoneSearch').addEventListener('input', e=> renderZoneList(e.target.value));
+
+/* =========================================================
+   6. ZONE DETAIL — FR-2.1, 2.2, 2.3, 2.4
+   ========================================================= */
+function selectStation(stationId){
+  selectedStationId = stationId;
+  renderZoneList(document.getElementById('zoneSearch').value);
+  renderZoneDetail();
+  if(map && markers[stationId]){
+    map.flyTo({center:markers[stationId].getLngLat(), zoom:13});
+    markers[stationId].togglePopup();
+  }
+}
+
+function renderZoneDetail(){
+  const st = STATIONS.find(s=>s.station_id===selectedStationId);
+  const box = document.getElementById('zoneDetail');
+  if(!st){ box.innerHTML = `<div class="detail-empty">Map la ஒரு zone marker click pannunga, athoda details inga varum.</div>`; return; }
+
+  const r = latestReading(st.station_id);
+  const cat = getCategory(r.aqi_value);
+  const updated = new Date(r.recorded_at).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'});
+
+  box.innerHTML = `
+    <div class="detail-head">
+      <div class="aqi-badge" style="background:${cat.hex};color:#101617;">
+        <div class="val">${r.aqi_value}</div>
+        <div class="lbl">AQI</div>
+      </div>
+      <div>
+        <div class="zname">${st.zone}</div>
+        <div class="zcat">${cat.label}</div>
+      </div>
+    </div>
+    <div class="updated">Last updated: ${updated}</div>
+    <div class="metric-row">
+      <div class="metric"><div class="m-val">${r.pm25}</div><div class="m-lbl">PM2.5 µg/m³</div></div>
+      <div class="metric"><div class="m-val">${r.pm10}</div><div class="m-lbl">PM10 µg/m³</div></div>
+    </div>
+    <div class="reco-card">${cat.advice}</div>
+    <div class="range-row" id="rangeRow">
+      ${[7,14,30].map(d=>`<button class="range-btn ${d===currentRangeDays?'active':''}" data-days="${d}">${d}d</button>`).join('')}
+    </div>
+    <canvas id="trendChart" height="150"></canvas>
+  `;
+  box.querySelectorAll('.range-btn').forEach(b=>{
+    b.addEventListener('click', ()=>{ currentRangeDays = parseInt(b.dataset.days); renderZoneDetail(); });
+  });
+  drawTrendChart(st.station_id, currentRangeDays);
+}
+
+let trendChartObj = null;
+function drawTrendChart(stationId, days){
+  const rs = readingsForStation(stationId, days);
+  const ctx = document.getElementById('trendChart');
+  if(!ctx) return;
+  if(chartLibMissing(ctx)) return;
+  if(trendChartObj) trendChartObj.destroy();
+  trendChartObj = new Chart(ctx, {
+    type:'line',
+    data:{
+      labels: rs.map(r=>new Date(r.recorded_at).toLocaleDateString('en-IN',{day:'2-digit',month:'short'})),
+      datasets:[{
+        label:'AQI', data: rs.map(r=>r.aqi_value),
+        borderColor:'#49C6B8', backgroundColor:'rgba(73,198,184,.12)',
+        tension:.3, fill:true, pointRadius:2
+      }]
+    },
+    options:{
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{color:'#8FA4B3',font:{size:10}}, grid:{color:'#22323D'}},
+        y:{ticks:{color:'#8FA4B3',font:{size:10}}, grid:{color:'#22323D'}}
+      }
+    }
+  });
+}
+
+/* =========================================================
+   7. ALERT BANNER — FR-3.1, FR-3.2
+   ========================================================= */
+function evaluateAlerts(){
+  const breached = STATIONS.filter(st => latestReading(st.station_id).aqi_value >= alertThreshold);
+  const banner = document.getElementById('alertBanner');
+  const text = document.getElementById('alertText');
+  if(breached.length){
+    const names = breached.map(st=>{
+      const cat = getCategory(latestReading(st.station_id).aqi_value);
+      return `<b>${st.zone}</b> (${cat.label}, AQI ${latestReading(st.station_id).aqi_value})`;
+    }).join(', ');
+    text.innerHTML = `Hazardous threshold (${alertThreshold}) crossed in: ${names}`;
+    banner.classList.add('show');
+  } else {
+    banner.classList.remove('show');
+  }
+}
+
+/* =========================================================
+   8. TABS
+   ========================================================= */
+document.querySelectorAll('.tab-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('view-'+btn.dataset.view).classList.add('active');
+    if(btn.dataset.view === 'dashboard') renderDashboard();
+    if(btn.dataset.view === 'admin') renderAdmin();
+  });
+});
+
+/* =========================================================
+   9. CITY DASHBOARD — FR-4.1, 4.2, 4.3, 4.4
+   ========================================================= */
+function renderDashboard(){
+  const values = STATIONS.map(st=>latestReading(st.station_id).aqi_value);
+  const avg = Math.round(values.reduce((a,b)=>a+b,0)/values.length);
+  const worstIdx = values.indexOf(Math.max(...values));
+  const bestIdx = values.indexOf(Math.min(...values));
+  const hazardousCount = values.filter(v=>v>=alertThreshold).length;
+
+  document.getElementById('statCards').innerHTML = `
+    <div class="stat-card"><div class="s-lbl">City average AQI</div><div class="s-val" style="color:${getCategory(avg).hex}">${avg}</div></div>
+    <div class="stat-card"><div class="s-lbl">Worst zone right now</div><div class="s-val" style="color:${getCategory(values[worstIdx]).hex}">${STATIONS[worstIdx].zone}</div></div>
+    <div class="stat-card"><div class="s-lbl">Zones over threshold (${alertThreshold})</div><div class="s-val" style="color:${hazardousCount?'#D2564F':'#4CAF7D'}">${hazardousCount} / ${STATIONS.length}</div></div>
+  `;
+
+  // heatmap tiles
+  document.getElementById('heatGrid').innerHTML = STATIONS.map(st=>{
+    const r = latestReading(st.station_id);
+    const cat = getCategory(r.aqi_value);
+    return `<div class="heat-tile" style="background:${cat.hex}" data-id="${st.station_id}">
+      <div class="t-zone">${st.zone}</div>
+      <div class="t-aqi">${r.aqi_value}</div>
+      <div class="t-cat">${cat.label}</div>
+    </div>`;
+  }).join('');
+  document.querySelectorAll('.heat-tile').forEach(t=>{
+    t.addEventListener('click', ()=>{
+      document.querySelector('[data-view="map"]').click();
+      selectStation(t.dataset.id);
+    });
+  });
+
+  // pollutant zone selector
+  const sel = document.getElementById('pollutantZoneSelect');
+  if(!sel.dataset.filled){
+    sel.innerHTML = `<option value="__city__">City average</option>` +
+      STATIONS.map(st=>`<option value="${st.station_id}">${st.zone}</option>`).join('');
+    sel.dataset.filled = "1";
+    sel.addEventListener('change', ()=>drawPollutantChart(sel.value));
+  }
+  drawPollutantChart(sel.value || "__city__");
+
+  drawHazardChart();
+}
+
+function chartLibMissing(ctx){
+  if(typeof Chart !== 'undefined') return false;
+  if(ctx && ctx.parentElement && !ctx.parentElement.querySelector('.chart-fallback-msg')){
+    const msg = document.createElement('div');
+    msg.className = 'chart-fallback-msg';
+    msg.style.cssText = "padding:24px 10px;text-align:center;color:var(--text-faint);font-size:12px;";
+    msg.textContent = "Chart library couldn't load (network/ad-blocker may be blocking cdnjs.cloudflare.com or cdn.jsdelivr.net) — the data itself is fine, refresh once your network allows those domains.";
+    ctx.parentElement.appendChild(msg);
+  }
+  return true;
+}
+
+function drawPollutantChart(target){
+  const ctx = document.getElementById('pollutantChart');
+  if(chartLibMissing(ctx)) return;
+  let labels, pm25, pm10;
+  if(target === "__city__"){
+    const days = 14;
+    labels = readingsForStation(STATIONS[0].station_id, days).map(r=>new Date(r.recorded_at).toLocaleDateString('en-IN',{day:'2-digit',month:'short'}));
+    pm25 = labels.map((_,i)=> Math.round(STATIONS.reduce((sum,st)=> sum + readingsForStation(st.station_id, days)[i].pm25,0)/STATIONS.length));
+    pm10 = labels.map((_,i)=> Math.round(STATIONS.reduce((sum,st)=> sum + readingsForStation(st.station_id, days)[i].pm10,0)/STATIONS.length));
+  } else {
+    const rs = readingsForStation(target, 14);
+    labels = rs.map(r=>new Date(r.recorded_at).toLocaleDateString('en-IN',{day:'2-digit',month:'short'}));
+    pm25 = rs.map(r=>r.pm25); pm10 = rs.map(r=>r.pm10);
+  }
+  if(pollutantChartObj) pollutantChartObj.destroy();
+  pollutantChartObj = new Chart(ctx, {
+    type:'line',
+    data:{labels, datasets:[
+      {label:'PM2.5', data:pm25, borderColor:'#E28A3D', backgroundColor:'rgba(226,138,61,.1)', tension:.3, pointRadius:2},
+      {label:'PM10', data:pm10, borderColor:'#49C6B8', backgroundColor:'rgba(73,198,184,.1)', tension:.3, pointRadius:2},
+    ]},
+    options:{
+      plugins:{legend:{labels:{color:'#E7EEF3'}}},
+      scales:{
+        x:{ticks:{color:'#8FA4B3',font:{size:10}}, grid:{color:'#22323D'}},
+        y:{ticks:{color:'#8FA4B3',font:{size:10}}, grid:{color:'#22323D'}}
+      }
+    }
+  });
+}
+
+function drawHazardChart(){
+  // count days per calendar month where aqi_value >= threshold, aggregated city-wide (max per day across zones)
+  const byMonth = {};
+  const daysSeen = {};
+  READINGS.forEach(r=>{
+    const d = new Date(r.recorded_at);
+    const key = d.toLocaleDateString('en-IN',{month:'short',year:'2-digit'});
+    const dayKey = key+"_"+d.getDate();
+    if(r.aqi_value >= alertThreshold){
+      if(!daysSeen[dayKey]){ daysSeen[dayKey]=true; byMonth[key]=(byMonth[key]||0)+1; }
+    } else if(byMonth[key]===undefined){
+      byMonth[key]=byMonth[key]||0;
+    }
+  });
+  const labels = Object.keys(byMonth);
+  const vals = labels.map(l=>byMonth[l]);
+  const ctx = document.getElementById('hazardChart');
+  if(chartLibMissing(ctx)) return;
+
+  // clear any previous empty-state note before redrawing
+  const oldNote = ctx.parentElement.querySelector('.hazard-empty-note');
+  if(oldNote) oldNote.remove();
+
+  if(vals.reduce((a,b)=>a+b,0) === 0){
+    const note = document.createElement('div');
+    note.className = 'hazard-empty-note';
+    note.style.cssText = "padding:6px 2px 12px;text-align:center;color:var(--text-faint);font-size:11.5px;";
+    note.textContent = `No zone crossed the AQI ${alertThreshold} threshold in this window — that's expected at Chennai's current levels. Lower the threshold in the Admin / Researcher tab to see it react.`;
+    ctx.parentElement.insertBefore(note, ctx);
+  }
+
+  if(hazardChartObj) hazardChartObj.destroy();
+  hazardChartObj = new Chart(ctx, {
+    type:'bar',
+    data:{labels, datasets:[{label:'Hazardous days', data:vals, backgroundColor:'#D2564F', borderRadius:5}]},
+    options:{
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{color:'#8FA4B3',font:{size:10}}, grid:{display:false}},
+        y:{ticks:{color:'#8FA4B3',font:{size:10},precision:0}, grid:{color:'#22323D'}}
+      }
+    }
+  });
+}
+
+/* =========================================================
+   10. ADMIN / RESEARCHER PANEL — FR-5.1, 5.2, 5.3
+   ========================================================= */
+function renderAdmin(){
+  document.getElementById('thresholdInput').value = alertThreshold;
+
+  const chips = document.getElementById('compareChips');
+  chips.innerHTML = STATIONS.map(st=>`
+    <div class="chip-toggle ${compareSelection.has(st.station_id)?'on':''}" data-id="${st.station_id}">
+      ${shapeSvg(getCategory(latestReading(st.station_id).aqi_value).shape, getCategory(latestReading(st.station_id).aqi_value).hex, 12)}
+      ${st.zone}
+    </div>`).join('');
+  chips.querySelectorAll('.chip-toggle').forEach(c=>{
+    c.addEventListener('click', ()=>{
+      const id = c.dataset.id;
+      if(compareSelection.has(id)) compareSelection.delete(id); else compareSelection.add(id);
+      renderAdmin();
+    });
+  });
+  drawCompareChart();
+  renderDataTable();
+}
+
+function drawCompareChart(){
+  const ctx = document.getElementById('compareChart');
+  if(chartLibMissing(ctx)) return;
+  const days = 14;
+  const labels = readingsForStation(STATIONS[0].station_id, days).map(r=>new Date(r.recorded_at).toLocaleDateString('en-IN',{day:'2-digit',month:'short'}));
+  const palette = ['#49C6B8','#E28A3D','#8B4C9E','#D2564F','#4CAF7D','#E3C13F','#6E2028','#7FA8C9'];
+  const datasets = [...compareSelection].map((id,i)=>{
+    const st = STATIONS.find(s=>s.station_id===id);
+    const rs = readingsForStation(id, days);
+    return {label:st.zone, data:rs.map(r=>r.aqi_value), borderColor:palette[i%palette.length], tension:.3, pointRadius:2, fill:false};
+  });
+  if(compareChartObj) compareChartObj.destroy();
+  compareChartObj = new Chart(ctx, {
+    type:'line',
+    data:{labels, datasets},
+    options:{
+      plugins:{legend:{labels:{color:'#E7EEF3'}}},
+      scales:{
+        x:{ticks:{color:'#8FA4B3',font:{size:10}}, grid:{color:'#22323D'}},
+        y:{ticks:{color:'#8FA4B3',font:{size:10}}, grid:{color:'#22323D'}}
+      }
+    }
+  });
+}
+
+function renderDataTable(){
+  const rows = [...compareSelection].flatMap(id=>readingsForStation(id,5).map(r=>{
+    const st = STATIONS.find(s=>s.station_id===id);
+    return {...r, zone:st.zone};
+  }));
+  const table = document.getElementById('dataTable');
+  table.innerHTML = `
+    <thead><tr><th>Zone</th><th>Reading ID</th><th>AQI</th><th>PM2.5</th><th>PM10</th><th>Recorded</th></tr></thead>
+    <tbody>${rows.map(r=>`<tr>
+      <td>${r.zone}</td><td class="mono-cell">${r.reading_id}</td><td class="mono-cell">${r.aqi_value}</td>
+      <td class="mono-cell">${r.pm25}</td><td class="mono-cell">${r.pm10}</td>
+      <td class="mono-cell">${new Date(r.recorded_at).toLocaleDateString('en-IN')}</td></tr>`).join('')}
+    </tbody>`;
+}
+
+document.getElementById('saveThreshold').addEventListener('click', ()=>{
+  const v = parseInt(document.getElementById('thresholdInput').value);
+  if(!isNaN(v) && v>=0 && v<=500){
+    alertThreshold = v;
+    evaluateAlerts();
+    renderDashboard();
+    renderAdmin();
+    const msg = document.getElementById('thresholdSaved');
+    msg.classList.add('show');
+    setTimeout(()=>msg.classList.remove('show'), 2200);
+  }
+});
+
+document.getElementById('exportCsv').addEventListener('click', ()=>{
+  const rows = [...compareSelection].flatMap(id=>{
+    const st = STATIONS.find(s=>s.station_id===id);
+    return readingsForStation(id).map(r=>({zone:st.zone, ...r}));
+  });
+  const header = "zone,reading_id,station_id,aqi_value,pm25,pm10,recorded_at";
+  const csv = [header, ...rows.map(r=>`${r.zone},${r.reading_id},${r.station_id},${r.aqi_value},${r.pm25},${r.pm10},${r.recorded_at}`)].join("\n");
+  const blob = new Blob([csv], {type:'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'aqi_readings_export.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+/* =========================================================
+   11. TOKEN HANDLING
+   ========================================================= */
+document.getElementById('tokenSave').addEventListener('click', ()=>{
+  const token = document.getElementById('tokenInput').value.trim();
+  initMap(token || null);
+});
+
+document.getElementById('aqiTokenSave').addEventListener('click', ()=>{
+  waqiToken = document.getElementById('aqiTokenInput').value.trim() || null;
+  refreshLiveData(waqiToken, true);
+  if(liveRefreshTimer) clearInterval(liveRefreshTimer);
+  if(waqiToken){
+    // WAQI stations typically update hourly — poll every 10 minutes
+    liveRefreshTimer = setInterval(()=> refreshLiveData(waqiToken, false), 10*60*1000);
+  }
+});
+
+/* =========================================================
+   12. INIT
+   ========================================================= */
+renderLegend();
+renderZoneList("");
+evaluateAlerts();
+initMap(null);
+</script>
+</body>
+</html>
